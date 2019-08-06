@@ -10,7 +10,7 @@ from .exceptions import PSQLAuthnzLDAPException, PSQLAuthnzPSQLException
 
 class Synchronizer:
     def __init__(self, global_groups=None, logger=None, pg_ident_file=None,
-        username_field="userPrinicpalName", is_citus=0):
+        username_field="userPrinicpalName", is_citus=0, citus_db=None):
         """
         Initializes a syncronizer, with placeholders for the LDAP and PSQL
         connections, plus an optional `global_groups` variable for groups
@@ -354,6 +354,24 @@ class Synchronizer:
                     query = """
                        SELECT run_command_on_workers($cmd$ CREATE ROLE {} LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE $cmd$)
                        """.format(lowercase_user)
+                    self.logger.debug("Running query {}".format(query)) 
+                    self.psql_cur.execute(query)
+
+                    self.logger.debug("Allowing {0} to connect to db {1}.".format(lowercase_user, citus_db))
+                    try:
+                        query = """
+                           GRANT CONNECT ON DATABASE \"{0}\" TO \"{1}\"
+                           """.format(citus_db, lowercase_user)
+                        self.logger.debug("Running query {}".format(query)) 
+                        self.psql_cur.execute(query)
+                    except psycopg2.Error as e:
+                        self.logger.error(unicode(e.message).encode('utf-8'))
+                        raise PSQLAuthnzPSQLException()
+
+                    self.logger.debug("Allowing {0} to connect to db {1} on Citus Workers.".format(lowercase_user, citus_db))
+                    query = """
+                       SELECT run_command_on_workers($cmd$ GRANT CONNECT ON DATABASE {0} TO {1} $cmd$)
+                       """.format(citus_db, lowercase_user)
                     self.logger.debug("Running query {}".format(query)) 
                     self.psql_cur.execute(query)
                 
